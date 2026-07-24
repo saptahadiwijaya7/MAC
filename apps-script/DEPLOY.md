@@ -150,3 +150,35 @@ Mulai versi ini, token API dibaca dari **Script Properties** (`API_TOKEN`), deng
 - Rotasi token: cukup ulangi Set API Token… + samakan `.env.local` + Buat/Reset Admin (karena garam berubah) + New version + restart.
 
 Catatan: user lain (selain admin) yang dibuat sebelum migrasi passwordnya ikut tidak valid setelah token berganti — reset lewat Settings → Pengguna, atau minta mereka di-reset oleh admin.
+
+## Stock Opname (v0.14)
+
+Menu baru **Opname** (role user & admin). Alur: cek fisik unit → tandai Ada/Hilang (bisa scan QR) → Selesaikan & Simpan. Hasilnya diterapkan ke data unit + dicatat sebagai log.
+
+### Deploy
+1. Paste Code.gs terbaru → **MAC → 1) Setup tabs** (membuat tab **Opname** & **OpnameItems**) → re-deploy **New version**.
+2. Frontend: `npm install` (menambah `jsqr`) → jalankan.
+
+### Cara kerja
+- Unit yang dicek: status **available, maintenance, lost**. Yang **borrowed** ditampilkan sebagai jumlah "di luar" (tidak dihitung). **sold** dikecualikan.
+- Saat disimpan: unit ditandai **Hilang** → status `lost`; unit `lost` yang **Ada** (ketemu) → kembali `available`; koreksi lokasi/kondisi ikut diterapkan. Unit yang belum dicek tidak diubah.
+- Log tersimpan di tab **Opname** (ringkasan) + **OpnameItems** (daftar selisih), bisa dilihat di tab Riwayat.
+
+### QR
+- Tempel stiker QR berisi **Unit ID** (mis. `A0001-1`) pada tiap unit. Saat scan, unit yang cocok otomatis ditandai **Ada**.
+- Kamera hanya jalan di **HTTPS** (atau `localhost` saat dev) — ini syarat browser, bukan aplikasi.
+
+## Arsip Unit / Soft-delete (v0.16)
+
+Menghapus unit dilakukan lewat **arsip** (soft-delete), bukan hapus permanen — aman untuk riwayat & bisa dipulihkan.
+
+### Deploy
+1. Paste Code.gs → **MAC → 1) Setup tabs** (membuat tab **ArchivedUnits**) → re-deploy **New version**.
+2. Frontend: ganti file → jalankan (tanpa dependency baru).
+
+### Cara kerja
+- Drawer detail unit (admin) → **Arsipkan unit**. Unit disembunyikan dari daftar Asset, Opname, dan picker Peminjaman.
+- Baris unit **tidak dihapus** dari sheet Units; ID-nya dicatat di **ArchivedUnits**, dan `listUnits_` menyaringnya. Karena barisnya tetap ada, "Build/Refresh Units" tidak akan memunculkannya lagi.
+- Tombol **Arsip** di halaman Asset (admin) → lihat daftar arsip + **Pulihkan**.
+- Unit yang **sedang dipinjam** tidak bisa diarsipkan (kembalikan dulu).
+- Riwayat peminjaman/opname yang menyebut unit tsb tetap utuh.

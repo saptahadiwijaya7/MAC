@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Package,
   Search,
@@ -19,11 +20,15 @@ import {
   Plus,
   CheckCircle2,
   ImagePlus,
+  Clock,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { updateUnit, addAsset, uploadPhoto } from "@/lib/client-api";
+import { updateUnit, addAsset, uploadPhoto, fetchUnitLast, archiveUnit, restoreUnit, fetchArchived, type UnitLast, type ArchivedUnit } from "@/lib/client-api";
+import { fmtDate } from "@/lib/utils";
 import { useSession } from "next-auth/react";
 import { roleAtLeast } from "@/lib/roles";
 import { useUnits } from "@/lib/hooks";
@@ -39,6 +44,7 @@ export default function AssetsPage() {
   const [saleOnly, setSaleOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const { data: session } = useSession();
   const isAdmin = roleAtLeast(session?.user?.role, "admin");
   const { units, isLoading: loading, error, mutate } = useUnits();
@@ -81,6 +87,12 @@ export default function AssetsPage() {
               <RefreshCw className="h-4 w-4" />
               Refresh
             </Button>
+            {isAdmin ? (
+              <Button variant="outline" onClick={() => setShowArchive(true)}>
+                <Archive className="h-4 w-4" />
+                Arsip
+              </Button>
+            ) : null}
             {isAdmin ? (
               <Button onClick={() => setShowAdd(true)}>
                 <Plus className="h-4 w-4" />
@@ -252,6 +264,17 @@ export default function AssetsPage() {
           isAdmin={isAdmin}
           onClose={() => setSelectedId(null)}
           onUpdated={applyUpdate}
+          onArchived={() => {
+            setSelectedId(null);
+            mutate();
+          }}
+        />
+      ) : null}
+
+      {showArchive ? (
+        <ArchiveDrawer
+          onClose={() => setShowArchive(false)}
+          onRestored={() => mutate()}
         />
       ) : null}
 
@@ -580,16 +603,116 @@ async function compressImage(
 // ============================================================
 // Detail drawer
 // ============================================================
+function ArchiveDrawer({ onClose, onRestored }: { onClose: () => void; onRestored: () => void }) {
+  const [list, setList] = useState<ArchivedUnit[] | null>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchArchived()
+      .then(setList)
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  async function restore(id: string) {
+    setBusy(id);
+    setErr("");
+    try {
+      await restoreUnit(id);
+      setList((l) => (l || []).filter((x) => x["Unit ID"] !== id));
+      onRestored();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <>
+      <button
+        className="fixed inset-0 z-40 bg-ink/40 backdrop-blur-sm"
+        onClick={onClose}
+        aria-label="Tutup"
+      />
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-card shadow-pop">
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
+          <h2 className="flex items-center gap-2 font-display text-lg font-bold text-slate-900">
+            <Archive className="h-5 w-5" /> Unit Diarsipkan
+          </h2>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          {err ? (
+            <div className="mb-3 flex items-start gap-2 rounded-xl bg-danger-soft p-3 text-sm text-danger">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              {err}
+            </div>
+          ) : null}
+          {!list ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-400">
+              <Loader2 className="h-4 w-4 animate-spin" /> Memuat…
+            </div>
+          ) : list.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-16 text-sm text-slate-400">
+              <Archive className="h-6 w-6" /> Tidak ada unit diarsipkan.
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {list.map((a) => (
+                <li
+                  key={a["Unit ID"]}
+                  className="flex items-center gap-3 rounded-xl border border-line p-3"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-slate-800">
+                      {a.Item}
+                    </span>
+                    <span className="font-mono text-xs text-slate-400">{a["Unit ID"]}</span>
+                    {a.Reason ? (
+                      <span className="block text-xs text-slate-400">Alasan: {a.Reason}</span>
+                    ) : null}
+                    <span className="block text-[11px] text-slate-400">
+                      {String(a["Archived At"] || "").slice(0, 10)}
+                      {a["Archived By"] ? ` · ${a["Archived By"]}` : ""}
+                    </span>
+                  </span>
+                  <button
+                    onClick={() => restore(a["Unit ID"])}
+                    disabled={busy === a["Unit ID"]}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-card px-2.5 py-1.5 text-xs font-medium text-brand hover:bg-brand-soft disabled:opacity-50"
+                  >
+                    {busy === a["Unit ID"] ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ArchiveRestore className="h-3.5 w-3.5" />
+                    )}
+                    Pulihkan
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
+
 function UnitDrawer({
   unit,
   isAdmin,
   onClose,
   onUpdated,
+  onArchived,
 }: {
   unit: Unit;
   isAdmin: boolean;
   onClose: () => void;
   onUpdated: (unitId: string, patch: Partial<Unit>) => void;
+  onArchived: () => void;
 }) {
   const [lokasi, setLokasi] = useState(unit.lokasi);
   const [kondisi, setKondisi] = useState(unit.kondisi);
@@ -597,6 +720,12 @@ function UnitDrawer({
   const [err, setErr] = useState("");
   const [confirmSold, setConfirmSold] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [last, setLast] = useState<UnitLast | null>(null);
+  const [lastLoading, setLastLoading] = useState(false);
+  const router = useRouter();
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveReason, setArchiveReason] = useState("");
 
   async function onPickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -621,6 +750,19 @@ function UnitDrawer({
     setErr("");
     setConfirmSold(false);
   }, [unit.unitId, unit.lokasi, unit.kondisi]);
+
+  useEffect(() => {
+    let alive = true;
+    setLast(null);
+    setLastLoading(true);
+    fetchUnitLast(unit.unitId)
+      .then((d) => alive && setLast(d))
+      .catch(() => alive && setLast({ none: true }))
+      .finally(() => alive && setLastLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [unit.unitId]);
 
   const sold = unit.status.toLowerCase() === "sold";
   const borrowed = unit.status.toLowerCase() === "borrowed";
@@ -685,6 +827,46 @@ function UnitDrawer({
               {unit.timesBorrowed}x dipinjam
             </span>
           </div>
+
+          {/* last borrow info */}
+          {last && !last.none && last.transactionId ? (
+            <button
+              onClick={() => router.push(`/history?q=${encodeURIComponent(last.transactionId!)}`)}
+              className="flex w-full items-center gap-2 rounded-xl bg-surface px-3 py-2.5 text-left transition-colors hover:bg-slate-100"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="mb-0.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                  <Clock className="h-3.5 w-3.5" /> Terakhir dipinjam
+                </span>
+                <span className="block text-sm text-slate-700">
+                  {last.tanggalPinjam
+                    ? fmtDate(last.tanggalPinjam)
+                    : unit.lastBorrowed
+                      ? fmtDate(unit.lastBorrowed)
+                      : "-"}{" "}
+                  oleh <span className="font-medium">{last.peminjam || "-"}</span>
+                  {last.kegiatan ? (
+                    <span className="text-slate-400"> · {last.kegiatan}</span>
+                  ) : null}
+                </span>
+                <span className="mt-0.5 flex items-center gap-1 font-mono text-[11px] text-brand">
+                  {last.transactionId} · lihat di History
+                </span>
+              </span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+            </button>
+          ) : (
+            <div className="rounded-xl bg-surface px-3 py-2.5">
+              <p className="mb-0.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                <Clock className="h-3.5 w-3.5" /> Terakhir dipinjam
+              </p>
+              {lastLoading ? (
+                <p className="text-xs text-slate-400">Memuat…</p>
+              ) : (
+                <p className="text-sm text-slate-400">Belum pernah dipinjam.</p>
+              )}
+            </div>
+          )}
 
           {!isAdmin ? (
             <ReadOnlyDetail unit={unit} />
@@ -870,6 +1052,64 @@ function UnitDrawer({
               </section>
             </>
           )}
+
+          {isAdmin ? (
+            <section className="rounded-xl border border-line p-3">
+              {!confirmArchive ? (
+                <button
+                  onClick={() => setConfirmArchive(true)}
+                  className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-danger"
+                >
+                  <Archive className="h-4 w-4" /> Arsipkan unit
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-500">
+                    Unit disembunyikan dari daftar, opname, & peminjaman. Riwayat tetap aman dan
+                    bisa dipulihkan lewat tombol <b>Arsip</b> di halaman Asset.
+                  </p>
+                  <input
+                    value={archiveReason}
+                    onChange={(e) => setArchiveReason(e.target.value)}
+                    placeholder="Alasan (opsional), mis. salah input / duplikat"
+                    className={inputCls}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      disabled={archiving}
+                      onClick={() => setConfirmArchive(false)}
+                    >
+                      Batal
+                    </Button>
+                    <button
+                      disabled={archiving}
+                      onClick={async () => {
+                        setArchiving(true);
+                        setErr("");
+                        try {
+                          await archiveUnit(unit.unitId, archiveReason.trim() || undefined);
+                          onArchived();
+                        } catch (e) {
+                          setErr(e instanceof Error ? e.message : String(e));
+                          setArchiving(false);
+                        }
+                      }}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-danger px-3.5 py-2 text-sm font-medium text-white hover:bg-danger/90 disabled:opacity-50"
+                    >
+                      {archiving ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Archive className="h-4 w-4" />
+                      )}
+                      Ya, arsipkan
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+          ) : null}
 
           {err ? (
             <div className="flex items-start gap-2 rounded-xl bg-danger-soft p-3 text-sm text-danger">

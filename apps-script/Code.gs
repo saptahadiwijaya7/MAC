@@ -30,6 +30,9 @@ var CONFIG = {
   DIVISIONS_SHEET: "Divisions",
   USERS_SHEET: "Users",
   SETTINGS_SHEET: "Settings",
+  OPNAME_SHEET: "Opname",
+  OPNAMEITEMS_SHEET: "OpnameItems",
+  ARCHIVED_SHEET: "ArchivedUnits",
 
   TOKEN: "CHANGE_ME_TO_A_LONG_RANDOM_STRING",
 
@@ -79,6 +82,15 @@ var TXITEM_HEADERS = [
 ];
 var SALES_HEADERS = [
   "Sale ID", "Unit ID", "Item", "Group", "Buyer", "Sale Price", "Sale Date", "Proof Photo", "Recorded At", "Recorded By",
+];
+var OPNAME_HEADERS = [
+  "Opname ID", "Tanggal", "Operator", "Total Dicek", "Ada", "Hilang", "Selisih", "Catatan", "Created At",
+];
+var OPNAMEITEM_HEADERS = [
+  "Opname ID", "Unit ID", "Item", "Hasil", "Perubahan",
+];
+var ARCHIVED_HEADERS = [
+  "Unit ID", "Item", "Reason", "Archived At", "Archived By",
 ];
 var USER_HEADERS = ["Name", "Email", "Password Hash", "Role", "Active", "Created At"];
 var VALID_ROLES = ["admin", "user"];
@@ -194,6 +206,9 @@ function setup() {
   ensureSheetWithHeaders_(ss, CONFIG.TX_SHEET, TX_HEADERS);
   ensureSheetWithHeaders_(ss, CONFIG.TXITEMS_SHEET, TXITEM_HEADERS);
   ensureSheetWithHeaders_(ss, CONFIG.SALES_SHEET, SALES_HEADERS);
+  ensureSheetWithHeaders_(ss, CONFIG.OPNAME_SHEET, OPNAME_HEADERS);
+  ensureSheetWithHeaders_(ss, CONFIG.OPNAMEITEMS_SHEET, OPNAMEITEM_HEADERS);
+  ensureSheetWithHeaders_(ss, CONFIG.ARCHIVED_SHEET, ARCHIVED_HEADERS);
 
   // Config-ish tabs
   var divSh = ensureSheetWithHeaders_(ss, CONFIG.DIVISIONS_SHEET, ["Division"]);
@@ -375,6 +390,10 @@ function doGet(e) {
     var action = p.action || "ping";
     if (action === "ping") return jsonOut_({ ok: true, service: "MAC", ts: now_() });
     if (action === "units") return jsonOut_({ ok: true, units: listUnits_(p) });
+    if (action === "unitLast") return jsonOut_(getUnitLast_(p));
+    if (action === "opnameList") return jsonOut_({ ok: true, opname: listOpname_(p) });
+    if (action === "opname") return jsonOut_({ ok: true, opname: getOpname_(p.id) });
+    if (action === "archivedUnits") return jsonOut_({ ok: true, archived: listArchived_() });
     if (action === "history") return jsonOut_({ ok: true, transactions: listTransactions_() });
     if (action === "usage") return jsonOut_({ ok: true, usage: listUsage_(p) });
     if (action === "sales") return jsonOut_({ ok: true, sales: listSales_(p) });
@@ -416,6 +435,9 @@ function doPost(e) {
     if (action === "setSettings") return jsonOut_(setSettings_(body));
     if (action === "updateTransaction") return jsonOut_(updateTransaction_(body));
     if (action === "deleteTransaction") return jsonOut_(deleteTransaction_(body));
+    if (action === "saveOpname") return jsonOut_(saveOpname_(body));
+    if (action === "archiveUnit") return jsonOut_(archiveUnit_(body));
+    if (action === "unarchiveUnit") return jsonOut_(unarchiveUnit_(body));
     if (action === "addUser") return jsonOut_(addUser_(body));
     if (action === "updateUser") return jsonOut_(updateUser_(body));
     if (action === "deleteUser") return jsonOut_(deleteUser_(body));
@@ -1233,12 +1255,228 @@ function deleteTransaction_(body) {
   }
 }
 
+// ---- stock opname ----
+function nextOpnameId_(sh) {
+  var stamp = todayStr_().replace(/-/g, "");
+  var n = 1;
+  if (sh && sh.getLastRow() > 1) {
+    var ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      var m = String(ids[i][0]).match(/OPN-(\d{8})-(\d+)/);
+      if (m && m[1] === stamp) n = Math.max(n, parseInt(m[2], 10) + 1);
+    }
+  }
+  return "OPN-" + stamp + "-" + ("00" + n).slice(-3);
+}
+
+/** Finalize an opname: apply status/location/condition changes and write the log. */
+function saveOpname_(body) {
+  var items = body.items || [];
+  if (!items.length) return { ok: false, error: "tidak ada item yang dicek" };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var opSh = ss.getSheetByName(CONFIG.OPNAME_SHEET);
+    var opItemSh = ss.getSheetByName(CONFIG.OPNAMEITEMS_SHEET);
+    var unitsSh = ss.getSheetByName(CONFIG.UNITS_SHEET);
+    if (!opSh || !opItemSh) return { ok: false, error: "tab Opname belum ada — jalankan Setup tabs." };
+
+    var u = indexUnits_(unitsSh);
+    var opId = nextOpnameId_(opSh);
+    var ada = 0, hilang = 0, selisih = 0;
+    var detail = [];
+    var indukTouched = {};
+
+    items.forEach(function (it) {
+      var unitId = String(it.unitId || "").trim();
+      var r = u.byId[unitId];
+      if (!r) return;
+      var d = u.data[r - 2];
+      var hasil = String(it.hasil || "").toLowerCase();
+      var curStatus = String(d[u.col.Status]).toLowerCase();
+      var curLok = String(d[u.col.Lokasi] || "");
+      var curKon = String(d[u.col.Kondisi] || "");
+      var changes = [];
+
+      if (hasil === "ada") {
+        ada++;
+        if (curStatus === "lost") {
+          unitsSh.getRange(r, u.col.Status + 1).setValue("available");
+          changes.push("ketemu: lost → available");
+          indukTouched[d[u.col["Induk No"]]] = true;
+        }
+        if (it.lokasiBaru !== undefined && String(it.lokasiBaru) && String(it.lokasiBaru) !== curLok) {
+          unitsSh.getRange(r, u.col.Lokasi + 1).setValue(String(it.lokasiBaru));
+          changes.push("lokasi: " + (curLok || "-") + " → " + it.lokasiBaru);
+        }
+        if (it.kondisiBaru !== undefined && String(it.kondisiBaru) && String(it.kondisiBaru) !== curKon) {
+          unitsSh.getRange(r, u.col.Kondisi + 1).setValue(String(it.kondisiBaru));
+          changes.push("kondisi: " + (curKon || "-") + " → " + it.kondisiBaru);
+        }
+      } else if (hasil === "hilang") {
+        hilang++;
+        if (curStatus !== "lost") {
+          unitsSh.getRange(r, u.col.Status + 1).setValue("lost");
+          changes.push(curStatus + " → lost");
+          indukTouched[d[u.col["Induk No"]]] = true;
+        } else {
+          changes.push("tetap hilang");
+        }
+      }
+
+      if (changes.length) {
+        selisih++;
+        detail.push([opId, unitId, d[u.col.Item], hasil, changes.join("; ")]);
+      }
+    });
+
+    opSh.appendRow([
+      opId, todayStr_(), String(body.operator || ""),
+      items.length, ada, hilang, selisih, String(body.catatan || ""), now_(),
+    ]);
+    if (detail.length) {
+      opItemSh.getRange(opItemSh.getLastRow() + 1, 1, detail.length, OPNAMEITEM_HEADERS.length).setValues(detail);
+    }
+    if (CONFIG.UPDATE_MASTER_COUNTS) {
+      Object.keys(indukTouched).forEach(function (no) { updateMasterCounts_(no); });
+    }
+    return { ok: true, opnameId: opId, total: items.length, ada: ada, hilang: hilang, selisih: selisih };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function listOpname_(p) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.OPNAME_SHEET);
+  if (!sh || sh.getLastRow() < 2) return [];
+  var values = sh.getDataRange().getValues();
+  var head = values[0];
+  var out = [];
+  for (var i = 1; i < values.length; i++) {
+    var o = {};
+    for (var c = 0; c < head.length; c++) o[head[c]] = values[i][c];
+    out.push(o);
+  }
+  out.reverse(); // newest first
+  return out;
+}
+
+function getOpname_(id) {
+  id = String(id || "").trim();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(CONFIG.OPNAME_SHEET);
+  var itSh = ss.getSheetByName(CONFIG.OPNAMEITEMS_SHEET);
+  if (!sh) return null;
+  var values = sh.getDataRange().getValues();
+  var head = values[0];
+  var rec = null;
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][0]).trim() === id) {
+      rec = {};
+      for (var c = 0; c < head.length; c++) rec[head[c]] = values[i][c];
+      break;
+    }
+  }
+  if (!rec) return null;
+  var items = [];
+  if (itSh && itSh.getLastRow() > 1) {
+    var iv = itSh.getDataRange().getValues();
+    var ih = iv[0];
+    for (var j = 1; j < iv.length; j++) {
+      if (String(iv[j][0]).trim() === id) {
+        var o = {};
+        for (var k = 0; k < ih.length; k++) o[ih[k]] = iv[j][k];
+        items.push(o);
+      }
+    }
+  }
+  rec.items = items;
+  return rec;
+}
+
+// ---- archive units (soft delete) ----
+function archiveUnit_(body) {
+  var unitId = String(body.unitId || "").trim();
+  if (!unitId) return { ok: false, error: "unitId wajib" };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var unitsSh = ss.getSheetByName(CONFIG.UNITS_SHEET);
+    var arSh = ss.getSheetByName(CONFIG.ARCHIVED_SHEET);
+    if (!arSh) return { ok: false, error: "tab ArchivedUnits belum ada — jalankan Setup tabs." };
+
+    var u = indexUnits_(unitsSh);
+    var r = u.byId[unitId];
+    if (!r) return { ok: false, error: "unit tidak ditemukan" };
+    var d = u.data[r - 2];
+    var status = String(d[u.col.Status]).toLowerCase();
+    if (status === "borrowed")
+      return { ok: false, error: "unit sedang dipinjam — kembalikan dulu sebelum diarsipkan" };
+
+    // already archived?
+    var set = archivedSet_();
+    if (set[unitId]) return { ok: true, unitId: unitId, already: true };
+
+    arSh.appendRow([unitId, d[u.col.Item], String(body.reason || ""), now_(), String(body.by || "")]);
+    return { ok: true, unitId: unitId };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function unarchiveUnit_(body) {
+  var unitId = String(body.unitId || "").trim();
+  if (!unitId) return { ok: false, error: "unitId wajib" };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ARCHIVED_SHEET);
+    if (!sh || sh.getLastRow() < 2) return { ok: true, unitId: unitId };
+    var ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+    for (var i = ids.length - 1; i >= 0; i--) {
+      if (String(ids[i][0]).trim() === unitId) sh.deleteRow(i + 2);
+    }
+    return { ok: true, unitId: unitId };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function listArchived_() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ARCHIVED_SHEET);
+  if (!sh || sh.getLastRow() < 2) return [];
+  var values = sh.getDataRange().getValues();
+  var head = values[0];
+  var out = [];
+  for (var i = 1; i < values.length; i++) {
+    var o = {};
+    for (var c = 0; c < head.length; c++) o[head[c]] = values[i][c];
+    out.push(o);
+  }
+  out.reverse();
+  return out;
+}
+
 // ============================================================
 // READERS
 // ============================================================
+function archivedSet_() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ARCHIVED_SHEET);
+  var set = {};
+  if (sh && sh.getLastRow() > 1) {
+    var ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) set[String(ids[i][0]).trim()] = true;
+  }
+  return set;
+}
+
 function listUnits_(p) {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.UNITS_SHEET);
   if (!sh || sh.getLastRow() < 2) return [];
+  var archived = archivedSet_();
   var values = sh.getDataRange().getValues();
   var head = values[0];
   var out = [];
@@ -1250,6 +1488,7 @@ function listUnits_(p) {
   for (var i = 1; i < values.length; i++) {
     var obj = {};
     for (var c = 0; c < head.length; c++) obj[head[c]] = values[i][c];
+    if (archived[String(obj["Unit ID"]).trim()]) continue; // hide archived units
     if (fStatus && String(obj.Status).toLowerCase() !== fStatus) continue;
     if (fGroup && String(obj.Group).toLowerCase() !== fGroup) continue;
     if (fSale && String(obj.Sale).toLowerCase() !== fSale) continue;
@@ -1388,6 +1627,52 @@ function listTransactions_() {
     out.push(obj);
   }
   return out;
+}
+
+/** Format a cell value as yyyy-MM-dd (dates) or plain string. */
+function ymdVal_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  return String(v || "");
+}
+
+/** Most recent borrow (peminjam + date) for a given unit, derived from transaction history. */
+function getUnitLast_(p) {
+  var unitId = String(p.unitId || "").trim();
+  if (!unitId) return { ok: true, none: true };
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var itemsSh = ss.getSheetByName(CONFIG.TXITEMS_SHEET);
+  var txSh = ss.getSheetByName(CONFIG.TX_SHEET);
+  if (!itemsSh || !txSh || itemsSh.getLastRow() < 2) return { ok: true, none: true };
+
+  var iv = itemsSh.getDataRange().getValues();
+  var latestId = "";
+  for (var i = 1; i < iv.length; i++) {
+    if (String(iv[i][1]).trim() === unitId) {
+      var id = String(iv[i][0]).trim();
+      if (id > latestId) latestId = id; // BOR-YYYYMMDD-### sorts chronologically
+    }
+  }
+  if (!latestId) return { ok: true, none: true };
+
+  var tv = txSh.getDataRange().getValues();
+  var head = tv[0];
+  var cId = head.indexOf("Transaction ID");
+  var cPem = head.indexOf("Peminjam");
+  var cTgl = head.indexOf("Tanggal Pinjam");
+  var cKeg = head.indexOf("Kegiatan");
+  for (var j = 1; j < tv.length; j++) {
+    if (String(tv[j][cId]).trim() === latestId) {
+      return {
+        ok: true,
+        none: false,
+        transactionId: latestId,
+        peminjam: cPem >= 0 ? String(tv[j][cPem]) : "",
+        tanggalPinjam: cTgl >= 0 ? ymdVal_(tv[j][cTgl]) : "",
+        kegiatan: cKeg >= 0 ? String(tv[j][cKeg]) : "",
+      };
+    }
+  }
+  return { ok: true, none: true };
 }
 
 function getTransaction_(txId) {

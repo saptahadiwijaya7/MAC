@@ -9,6 +9,8 @@ import {
   History,
   Activity,
   BarChart3,
+  ClipboardCheck,
+  QrCode,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -24,6 +26,8 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Asset", href: "/assets", icon: Package, group: "Inventory" },
+  { label: "Opname", href: "/opname", icon: ClipboardCheck, group: "Inventory", minRole: "user" },
+  { label: "Label QR", href: "/labels", icon: QrCode, group: "Inventory", minRole: "user" },
   { label: "Peminjaman", href: "/transaction/borrow", icon: ArrowUpFromLine, group: "Transaksi", minRole: "user" },
   { label: "Pengembalian", href: "/transaction/return", icon: ArrowDownToLine, group: "Transaksi", minRole: "user" },
   { label: "Ready Dijual", href: "/ready-dijual", icon: Tag, group: "Transaksi" },

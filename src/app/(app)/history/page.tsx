@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { mutate as globalMutate } from "swr";
 import {
   Search,
@@ -47,12 +48,14 @@ function txStatusMeta(s: string) {
   }
 }
 
-export default function HistoryPage() {
+function HistoryInner() {
   const { transactions: tx, isLoading: loading, error, mutate } = useHistory();
-  const [q, setQ] = useState("");
+  const params = useSearchParams();
+  const [q, setQ] = useState(params.get("q") || "");
   const [statusF, setStatusF] = useState("all");
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteTx, setDeleteTx] = useState<Transaction | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const { data: session } = useSession();
   const canEdit = roleAtLeast(session?.user?.role, "user");
@@ -147,7 +150,11 @@ export default function HistoryPage() {
                   const m = txStatusMeta(t.status);
                   const open = t.status.toLowerCase() !== "selesai";
                   return (
-                    <tr key={t.id} className="hover:bg-slate-50/70">
+                    <tr
+                      key={t.id}
+                      onClick={() => setDetailId(t.id)}
+                      className="cursor-pointer hover:bg-slate-50/70"
+                    >
                       <td className="px-5 py-3 text-slate-500">{fmtDate(t.tanggalPinjam)}</td>
                       <td className="px-5 py-3 font-mono text-xs text-slate-600">{t.id}</td>
                       <td className="px-5 py-3 font-medium text-slate-900">
@@ -165,7 +172,7 @@ export default function HistoryPage() {
                           {t.status || "—"}
                         </span>
                       </td>
-                      <td className="px-5 py-3">
+                      <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
                           {canEdit && open ? (
                             <button
@@ -206,6 +213,21 @@ export default function HistoryPage() {
         )}
       </Card>
 
+      {detailId ? (
+        <TransactionDetailDrawer
+          id={detailId}
+          onClose={() => setDetailId(null)}
+          onEdit={
+            canEdit
+              ? (id) => {
+                  setDetailId(null);
+                  setEditId(id);
+                }
+              : undefined
+          }
+        />
+      ) : null}
+
       {editId ? (
         <EditTransactionDrawer
           id={editId}
@@ -228,6 +250,182 @@ export default function HistoryPage() {
         />
       ) : null}
     </>
+  );
+}
+
+// ---------------- Detail (read-only) ----------------
+function TransactionDetailDrawer({
+  id,
+  onClose,
+  onEdit,
+}: {
+  id: string;
+  onClose: () => void;
+  onEdit?: (id: string) => void;
+}) {
+  const [tx, setTx] = useState<Transaction | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    fetchTransaction(id)
+      .then((t) => alive && setTx(t))
+      .catch((e) => alive && setErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  const items = tx?.items || [];
+  const dipinjam = items.filter((i) => i.statusItem === "dipinjam").length;
+  const kembali = items.filter((i) => i.statusItem !== "dipinjam").length;
+  const rusakHilang = items.filter((i) => {
+    const k = (i.kondisiKembali || "").toLowerCase();
+    return k.includes("rusak") || k.includes("hilang");
+  }).length;
+  const open = tx ? tx.status.toLowerCase() !== "selesai" : false;
+
+  return (
+    <>
+      <button
+        className="fixed inset-0 z-40 bg-ink/40 backdrop-blur-sm"
+        onClick={onClose}
+        aria-label="Tutup"
+      />
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col bg-card shadow-pop">
+        <div className="flex items-start justify-between border-b border-line px-5 py-4">
+          <div className="min-w-0">
+            <p className="font-mono text-xs text-slate-400">{id}</p>
+            <h2 className="font-display text-lg font-bold text-slate-900">Detail Peminjaman</h2>
+          </div>
+          <div className="flex items-center gap-1">
+            {onEdit && open ? (
+              <button
+                onClick={() => onEdit(id)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </button>
+            ) : null}
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex flex-1 items-center justify-center gap-2 text-sm text-slate-400">
+            <Loader2 className="h-4 w-4 animate-spin" /> Memuat…
+          </div>
+        ) : err ? (
+          <div className="m-5 flex items-start gap-2 rounded-xl bg-danger-soft p-3 text-sm text-danger">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {err}
+          </div>
+        ) : tx ? (
+          <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+            {/* header meta */}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <Meta label="Peminjam" value={tx.peminjam} />
+              <Meta label="Divisi" value={tx.divisi || "-"} />
+              <Meta label="Kegiatan" value={tx.kegiatan || "-"} />
+              <Meta label="Tanggal pinjam" value={fmtDate(tx.tanggalPinjam)} />
+              <Meta label="Rencana kembali" value={tx.kembaliRencana ? fmtDate(tx.kembaliRencana) : "-"} />
+              <Meta label="Status" value={tx.status} />
+              {tx.createdBy ? <Meta label="Dibuat oleh" value={tx.createdBy} /> : null}
+              {tx.catatan ? <Meta label="Catatan" value={tx.catatan} /> : null}
+            </div>
+
+            {/* summary */}
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-brand-soft px-2.5 py-1 font-medium text-brand">
+                {dipinjam} masih dipinjam
+              </span>
+              <span className="rounded-full bg-ok-soft px-2.5 py-1 font-medium text-ok">
+                {kembali} dikembalikan
+              </span>
+              {rusakHilang > 0 ? (
+                <span className="rounded-full bg-danger-soft px-2.5 py-1 font-medium text-danger">
+                  {rusakHilang} rusak/hilang
+                </span>
+              ) : null}
+            </div>
+
+            {/* items */}
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+                Barang ({items.length})
+              </p>
+              <ul className="space-y-1.5">
+                {items.map((i) => {
+                  const returned = i.statusItem !== "dipinjam";
+                  const kond = (i.kondisiKembali || "").toLowerCase();
+                  const bad = kond.includes("rusak") || kond.includes("hilang");
+                  return (
+                    <li
+                      key={i.unitId}
+                      className="flex items-center gap-3 rounded-xl border border-line p-2.5"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-slate-800">
+                          {i.item}
+                        </span>
+                        <span className="font-mono text-xs text-slate-400">
+                          {i.unitId}
+                          {i.lokasi ? <span className="text-ok"> · {i.lokasi}</span> : null}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        {returned ? (
+                          <>
+                            <span
+                              className={`block text-xs font-medium ${bad ? "text-danger" : "text-ok"}`}
+                            >
+                              {i.kondisiKembali || "Kembali"}
+                            </span>
+                            {i.returnedAt ? (
+                              <span className="text-[11px] text-slate-400">
+                                {fmtDate(i.returnedAt)}
+                              </span>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand">
+                            Dipinjam
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
+            <Link
+              href={`/surat-jalan/${encodeURIComponent(id)}`}
+              target="_blank"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              <Printer className="h-4 w-4" /> Cetak Surat Jalan
+            </Link>
+          </div>
+        ) : null}
+      </aside>
+    </>
+  );
+}
+
+function Meta({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="text-slate-700">{value}</p>
+    </div>
   );
 }
 
@@ -581,3 +779,11 @@ function DeleteConfirm({
 
 const inp =
   "w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15";
+
+export default function HistoryPage() {
+  return (
+    <Suspense fallback={null}>
+      <HistoryInner />
+    </Suspense>
+  );
+}

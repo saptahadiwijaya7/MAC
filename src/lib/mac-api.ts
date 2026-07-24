@@ -189,3 +189,31 @@ export async function updateTransaction(payload: {
 export async function deleteTransaction(transactionId: string): Promise<GasResponse> {
   return gasPost({ action: "deleteTransaction", transactionId });
 }
+
+export async function getUnitLast(unitId: string): Promise<GasResponse> {
+  return gasGet({ action: "unitLast", unitId });
+}
+
+export async function saveOpname(payload: {
+  operator?: string;
+  catatan?: string;
+  items: { unitId: string; hasil: string; lokasiBaru?: string; kondisiBaru?: string }[];
+}): Promise<GasResponse> {
+  return gasPost({ action: "saveOpname", ...payload });
+}
+export async function listOpname(): Promise<GasResponse> {
+  return gasGet({ action: "opnameList" });
+}
+export async function getOpname(id: string): Promise<GasResponse> {
+  return gasGet({ action: "opname", id });
+}
+
+export async function archiveUnit(unitId: string, by: string, reason?: string): Promise<GasResponse> {
+  return gasPost({ action: "archiveUnit", unitId, by, reason: reason || "" });
+}
+export async function unarchiveUnit(unitId: string): Promise<GasResponse> {
+  return gasPost({ action: "unarchiveUnit", unitId });
+}
+export async function listArchived(): Promise<GasResponse> {
+  return gasGet({ action: "archivedUnits" });
+}

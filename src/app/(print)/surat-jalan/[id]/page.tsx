@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { Printer, Loader2, AlertTriangle, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { fetchTransaction } from "@/lib/client-api";
+import { QRCodeSVG } from "qrcode.react";
 import { BORROW_CHECKLIST } from "@/constants/options";
 import type { Transaction } from "@/types/mac";
 
@@ -84,11 +85,15 @@ export default function SuratJalanPage({
             </h1>
             <p className="text-xs text-slate-500">Marketing Asset Center</p>
           </div>
-          <div className="text-right">
-            <h2 className="font-display text-lg font-bold tracking-tight text-slate-900">
-              SURAT PEMINJAMAN BARANG
-            </h2>
-            <p className="font-mono text-sm text-slate-600">{tx.id}</p>
+          <div className="flex items-start gap-4">
+            <div className="text-right">
+              <h2 className="font-display text-lg font-bold tracking-tight text-slate-900">
+                SURAT PEMINJAMAN BARANG
+              </h2>
+              <p className="font-mono text-sm text-slate-600">{tx.id}</p>
+              <p className="mt-1 text-[10px] text-slate-400">Scan QR untuk pengembalian</p>
+            </div>
+            <QRCodeSVG value={tx.id} size={72} level="M" className="shrink-0" />
           </div>
         </header>
 

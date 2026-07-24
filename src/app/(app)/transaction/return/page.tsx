@@ -12,11 +12,13 @@ import {
   RotateCcw,
   Clock,
   ChevronRight,
+  ScanLine,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { fetchTransaction, submitReturn } from "@/lib/client-api";
+import { QrScanner } from "@/components/QrScanner";
 import { RETURN_CONDITIONS } from "@/constants/options";
 import { fmtDate } from "@/lib/utils";
 import type { Transaction, TransactionItem } from "@/types/mac";
@@ -37,6 +39,7 @@ function ReturnInner() {
 
   const [openTx, setOpenTx] = useState<Transaction[]>([]);
   const [loadingList, setLoadingList] = useState(true);
+  const [scanOpen, setScanOpen] = useState(false);
 
   const loadOutstanding = useCallback(() => {
     setLoadingList(true);
@@ -74,7 +77,7 @@ function ReturnInner() {
         }
         const init: Record<string, RowState> = {};
         outstanding.forEach((i) => {
-          init[i.unitId] = { selected: true, kondisi: "Baik" };
+          init[i.unitId] = { selected: false, kondisi: "Baik" };
         });
         setRows(init);
         setTx(t);
@@ -163,6 +166,10 @@ function ReturnInner() {
               className="w-full rounded-xl border border-line bg-surface py-2 pl-9 pr-3 font-mono text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15"
             />
           </div>
+          <Button variant="outline" onClick={() => setScanOpen(true)}>
+            <ScanLine className="h-4 w-4" />
+            Scan
+          </Button>
           <Button onClick={() => lookup()} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
             Cari
@@ -279,7 +286,10 @@ function ReturnInner() {
                         <span className="block truncate text-sm font-medium text-slate-800">
                           {i.item}
                         </span>
-                        <span className="font-mono text-xs text-slate-400">{i.unitId}</span>
+                        <span className="block truncate font-mono text-xs text-slate-400">
+                          {i.unitId}
+                          {i.lokasi ? <span className="font-medium text-ok"> - {i.lokasi}</span> : ""}
+                        </span>
                       </span>
                     </label>
                     <select
@@ -321,6 +331,20 @@ function ReturnInner() {
             </Button>
           </div>
         </Card>
+      ) : null}
+
+      {scanOpen ? (
+        <QrScanner
+          title="Scan QR Surat Jalan"
+          hint="Arahkan ke QR pada surat jalan untuk memuat transaksinya."
+          keepOpen={false}
+          onClose={() => setScanOpen(false)}
+          onScan={(code) => {
+            const id = code.trim();
+            setIdInput(id);
+            lookup(id);
+          }}
+        />
       ) : null}
     </>
   );

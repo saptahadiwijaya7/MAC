@@ -225,3 +225,80 @@ export async function deleteTransaction(id: string): Promise<void> {
   });
   await jsonOrThrow<Record<string, unknown>>(res);
 }
+
+export interface UnitLast {
+  none: boolean;
+  peminjam?: string;
+  tanggalPinjam?: string;
+  kegiatan?: string;
+  transactionId?: string;
+}
+export async function fetchUnitLast(unitId: string): Promise<UnitLast> {
+  const res = await fetch(`/api/unit-last?unitId=${encodeURIComponent(unitId)}`, {
+    cache: "no-store",
+  });
+  return jsonOrThrow<UnitLast>(res);
+}
+
+export interface OpnameLog {
+  "Opname ID": string;
+  Tanggal: string;
+  Operator: string;
+  "Total Dicek": number;
+  Ada: number;
+  Hilang: number;
+  Selisih: number;
+  Catatan: string;
+  "Created At": string;
+  items?: Record<string, string>[];
+}
+export async function saveOpname(payload: {
+  catatan?: string;
+  items: { unitId: string; hasil: string; lokasiBaru?: string; kondisiBaru?: string }[];
+}): Promise<{ opnameId: string; total: number; ada: number; hilang: number; selisih: number }> {
+  const res = await fetch("/api/opname", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return jsonOrThrow(res);
+}
+export async function fetchOpnameList(): Promise<OpnameLog[]> {
+  const res = await fetch("/api/opname", { cache: "no-store" });
+  const d = await jsonOrThrow<{ opname: OpnameLog[] }>(res);
+  return d.opname ?? [];
+}
+export async function fetchOpname(id: string): Promise<OpnameLog | null> {
+  const res = await fetch(`/api/opname/${encodeURIComponent(id)}`, { cache: "no-store" });
+  const d = await jsonOrThrow<{ opname: OpnameLog | null }>(res);
+  return d.opname ?? null;
+}
+
+export interface ArchivedUnit {
+  "Unit ID": string;
+  Item: string;
+  Reason: string;
+  "Archived At": string;
+  "Archived By": string;
+}
+export async function archiveUnit(unitId: string, reason?: string): Promise<void> {
+  const res = await fetch("/api/unit-archive", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ unitId, reason }),
+  });
+  await jsonOrThrow(res);
+}
+export async function restoreUnit(unitId: string): Promise<void> {
+  const res = await fetch("/api/unit-archive", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ unitId, restore: true }),
+  });
+  await jsonOrThrow(res);
+}
+export async function fetchArchived(): Promise<ArchivedUnit[]> {
+  const res = await fetch("/api/unit-archive", { cache: "no-store" });
+  const d = await jsonOrThrow<{ archived: ArchivedUnit[] }>(res);
+  return d.archived ?? [];
+}

@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.16.0-alpha] - 2026-07-14
+### Added
+- **Arsip unit (soft-delete)** untuk unit salah input/duplikat — aman & bisa dipulihkan:
+  - Drawer detail unit (admin) → tombol **Arsipkan unit** (+ alasan opsional). Unit hilang dari daftar Asset, Opname, dan picker Peminjaman.
+  - Tombol **Arsip** di header Asset (admin) → panel daftar arsip dengan **Pulihkan**.
+  - Unit yang sedang dipinjam tidak bisa diarsipkan; riwayat tetap utuh.
+### Backend (Setup + redeploy New version)
+- New sheet **ArchivedUnits**; `listUnits_` menyaring unit terarsip; actions `archiveUnit`, `unarchiveUnit` (guard admin), `archivedUnits`.
+### Design note
+- Dipilih soft-delete (bukan hard-delete) karena Units diturunkan dari MASTER dan "Build/Refresh Units" bersifat additive — hard-delete akan muncul lagi saat refresh, dan bisa merusak referensi riwayat.
+
+## [0.15.0-alpha] - 2026-07-14
+### Added
+- **Cetak Label QR massal** (menu "Label QR"): pilih unit (cari/filter/pilih-semua) → cetak grid label, tiap label berisi QR (isi Unit ID) + Unit ID + nama + grup. Siap tempel untuk scan opname/pengembalian.
+- **Detail transaksi** di History: klik baris → drawer read-only berisi info peminjam + daftar barang beserta status kembali, **kondisi (rusak/hilang ditandai merah)**, dan tanggal kembali. Ada tombol Edit (bila belum selesai) + cetak surat jalan.
+- **QR di Surat Jalan**: setiap surat jalan kini punya QR berisi kode transaksi. Saat pengembalian, tombol **Scan** di halaman Pengembalian bisa membaca QR itu untuk langsung memuat transaksinya.
+- **Komponen QrScanner bersama** dengan deteksi secure-context (HTTPS) dan **fallback input manual** — dipakai di Opname & Pengembalian.
+### Fixed / Changed
+- Pesan error kamera lebih spesifik: membedakan "butuh HTTPS", "izin ditolak", dan "kamera tidak ada", plus selalu menyediakan input manual sebagai cadangan.
+### Notes
+- Frontend menambah dependency `qrcode.react` → `npm install` setelah unzip. Backend tidak berubah dari 0.14.0.
+- Kamera hanya aktif di HTTPS atau localhost (syarat browser). Untuk uji di HP via LAN, jalankan `next dev --experimental-https`, atau deploy ke HTTPS.
+
+## [0.14.0-alpha] - 2026-07-14
+### Added
+- **Stock Opname** (menu baru, role user & admin) — pendekatan hybrid:
+  - Checklist unit dikelompokkan per **lokasi**, tandai **Ada / Hilang**, dengan progress + ringkasan.
+  - **Scan QR** (kamera + jsQR): scan Unit ID → otomatis tandai Ada; bisa scan beruntun.
+  - Koreksi **lokasi/kondisi** inline saat unit ditandai Ada.
+  - **Selesaikan & Simpan**: menerapkan perubahan (hilang → lost; lost yang ketemu → available; update lokasi/kondisi) dan menyimpan **log opname**.
+  - Tab **Riwayat**: daftar opname lampau (tanggal, operator, jumlah ada/hilang/selisih) + detail selisih.
+### Backend (Setup + redeploy New version)
+- New sheets **Opname** + **OpnameItems**; actions `saveOpname` (POST, guard user, LockService), `opnameList`, `opname&id=`.
+### Notes
+- Frontend menambah dependency `jsqr` → `npm install` setelah unzip.
+- Kamera QR butuh HTTPS (atau localhost) — syarat browser.
+
+## [0.13.1-alpha] - 2026-07-14
+### Added
+- Blok "Terakhir dipinjam" di drawer Asset kini **bisa diklik** → membuka History dengan filter ke transaksi tsb (`/history?q=<txId>`). History membaca parameter `?q=` untuk mengisi pencarian otomatis.
+### Note
+- Backend tidak berubah dari 0.13.0 (endpoint `unitLast` sudah ada). Kalau belum sempat redeploy Code.gs 0.13.0, lakukan sekarang agar blok "Terakhir dipinjam" terisi.
+## [0.13.0-alpha] - 2026-07-14
+### Added
+- Drawer detail Asset kini menampilkan **"Terakhir dipinjam"**: tanggal + nama peminjam (dan kegiatan bila ada), diturunkan dari transaksi terakhir yang memuat unit tsb. Tampil untuk admin maupun non-admin.
+### Backend (redeploy New version; no schema change)
+- New GET action `unitLast&unitId=` → transaksi terbaru untuk sebuah unit (peminjam, tanggal, kegiatan). New route `/api/unit-last`.
+## [0.12.4-alpha] - 2026-07-14
+### Changed
+- Pengembalian: teks lokasi pada tiap item kini berwarna hijau (text-ok) agar lebih ter-highlight; nomor aset tetap abu-abu untuk kontras.
+
+## [0.12.3-alpha] - 2026-07-14
+### Changed
+- Pengembalian: item checklist kini **default tidak tercentang** — user memilih sendiri unit mana yang dikembalikan (tombol "Kembalikan N unit" aktif setelah minimal 1 dicentang).
+- Baris item menampilkan lokasi: **Nama Asset** di atas, lalu **Nomor asset - lokasi** di bawahnya.
+
 ## [0.12.2-alpha] - 2026-07-14
 ### Added
 - **Favicon / app icon** matching the in-app logo (white package glyph on the brand blue #2563EB rounded square). Uses Next.js App Router file conventions: `src/app/icon.svg` (scalable), `src/app/favicon.ico` (16/32/48), and `src/app/apple-icon.png` (180×180, full-bleed for iOS).
