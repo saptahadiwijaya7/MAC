@@ -1,9 +1,22 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { SwRegister } from "@/components/SwRegister";
 
 export const metadata: Metadata = {
   title: "Marketing Asset Center",
   description: "Manage. Track. Optimize. Internal asset borrow, return & tracking.",
+  applicationName: "Marketing Asset Center",
+  appleWebApp: {
+    capable: true,
+    title: "MAC",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#2563EB",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({
@@ -20,7 +33,10 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <SwRegister />
+        {children}
+      </body>
     </html>
   );
 }

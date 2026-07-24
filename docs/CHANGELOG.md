@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.17.0-alpha] - 2026-07-14
+### Added
+- **PWA / installable app**: web manifest (`app/manifest.ts`), ikon 192/512 (+ maskable) di `public/`, service worker (`public/sw.js`, network-first untuk halaman, lewati /api), registrasi SW, theme color, dan meta apple-web-app. Aplikasi kini bisa "Install/Add to Home Screen" dari browser dan tampil standalone seperti native.
+### Notes
+- Frontend only, tidak ada perubahan Apps Script. Install/PWA hanya aktif di **HTTPS** (produksi) — di localhost bisa untuk uji.
 ## [0.16.0-alpha] - 2026-07-14
 ### Added
 - **Arsip unit (soft-delete)** untuk unit salah input/duplikat — aman & bisa dipulihkan:
