@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.17.1-alpha] - 2026-07-14
+### Fixed
+- **PWA tidak bisa di-install (ikon huruf "V")**: middleware auth ikut mencegat `/manifest.webmanifest` dan ikon PWA, sehingga dialihkan ke halaman /login (HTML) → manifest gagal di-parse. Matcher middleware kini mengecualikan file statis (.webmanifest, .png/.svg/.ico, sw.js, dll.) sehingga manifest & ikon dapat diakses publik. `/api/*` tetap dilindungi.
 ## [0.17.0-alpha] - 2026-07-14
 ### Added
 - **PWA / installable app**: web manifest (`app/manifest.ts`), ikon 192/512 (+ maskable) di `public/`, service worker (`public/sw.js`, network-first untuk halaman, lewati /api), registrasi SW, theme color, dan meta apple-web-app. Aplikasi kini bisa "Install/Add to Home Screen" dari browser dan tampil standalone seperti native.

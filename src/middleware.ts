@@ -21,5 +21,7 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico|login).*)"],
+  matcher: [
+    "/((?!api/auth|_next/static|_next/image|login|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webmanifest|js|css|txt|woff|woff2)$).*)",
+  ],
 };
